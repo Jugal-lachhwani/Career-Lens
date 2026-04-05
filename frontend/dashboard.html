@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Analytics Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header dashboard-header">
+            <h1>Job Market Analytics</h1>
+            <p class="subtitle">Live insights from PostgreSQL job_features</p>
+        </header>
+
+        <nav class="nav-tabs">
+            <a class="tab-link" href="index.html">Back To Job Search</a>
+            <a class="tab-link active-link" href="dashboard.html">Dashboard</a>
+        </nav>
+
+        <section id="dashboardLoading" class="loading-state">
+            <div class="loading-spinner"></div>
+            <p>Loading dashboard analytics...</p>
+        </section>
+
+        <section id="dashboardError" class="error-message" style="display:none;"></section>
+
+        <section id="dashboardContent" style="display:none;">
+            <div class="kpi-grid" id="kpiGrid"></div>
+
+            <div class="charts-grid">
+                <article class="chart-card">
+                    <h3>Top Skills In Demand</h3>
+                    <canvas id="skillsChart"></canvas>
+                </article>
+
+                <article class="chart-card">
+                    <h3>Jobs By Role</h3>
+                    <canvas id="rolesChart"></canvas>
+                </article>
+
+                <article class="chart-card">
+                    <h3>Engineering Roles With Most Jobs</h3>
+                    <canvas id="engineeringRolesChart"></canvas>
+                </article>
+
+                <article class="chart-card">
+                    <h3>Top Hiring Companies</h3>
+                    <canvas id="companiesChart"></canvas>
+                </article>
+
+                <article class="chart-card wide">
+                    <h3>Job Postings Timeline</h3>
+                    <canvas id="timelineChart"></canvas>
+                </article>
+
+                <article class="chart-card wide">
+                    <h3>Role Mix By Top Locations</h3>
+                    <canvas id="locationRoleChart"></canvas>
+                </article>
+            </div>
+        </section>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

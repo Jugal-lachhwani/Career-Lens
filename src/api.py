@@ -14,10 +14,14 @@ import tempfile
 import os
 from pathlib import Path
 from sqlmodel import Session
+from collections import Counter, defaultdict
+from datetime import datetime
 
 from src.graph import Workflow
 from src.Database.database import init_db, engine
 from src.models import JobListing, JobAnalysis, SearchHistory
+from src.Postres.postres import SessionLocal as PostgresSessionLocal
+from src.Postres.models import JobFeatures
 from src.Database.db_operations import (
     save_workflow_results,
     get_all_jobs,
@@ -73,6 +77,15 @@ def get_db_session():
         yield session
 
 
+def get_postgres_session():
+    """Dependency to get PostgreSQL session for analytics."""
+    db = PostgresSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def get_workflow():
     """Get or create workflow instance."""
     global workflow_instance
@@ -114,6 +127,31 @@ class JobSearchResponse(BaseModel):
     job_feedbacks: List[JobFeedbackResponse]
     resume_fields: ResumeFieldsResponse
     message: str
+
+
+ROLE_TITLE_HINTS = {
+    "Data Scientist": ["data scientist"],
+    "Data Analyst": ["data analyst", "business analyst", "bi analyst"],
+    "Data Engineer": ["data engineer", "analytics engineer"],
+    "ML Engineer": ["machine learning engineer", "ml engineer", "applied scientist"],
+    "AI Engineer": ["ai engineer", "genai", "llm", "prompt engineer"],
+    "Backend Engineer": ["backend", "back-end", "server-side"],
+    "Frontend Engineer": ["frontend", "front-end", "ui engineer", "react developer"],
+    "Full Stack Engineer": ["full stack", "full-stack", "fullstack"],
+    "DevOps Engineer": ["devops", "site reliability", "sre", "platform engineer"],
+    "Software Engineer": ["software engineer", "software developer", "application engineer"],
+}
+
+
+def _map_role_from_title(title: str | None) -> str:
+    if not title:
+        return "Other"
+
+    title_lc = title.lower()
+    for role, hints in ROLE_TITLE_HINTS.items():
+        if any(hint in title_lc for hint in hints):
+            return role
+    return "Other"
 
 
 @app.get("/")
@@ -375,6 +413,129 @@ async def get_history(limit: int = 20, session: Session = Depends(get_db_session
     except Exception as e:
         logger.error(f"Error retrieving search history: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve history: {str(e)}")
+
+
+@app.get("/analytics/dashboard")
+async def get_dashboard_analytics(session=Depends(get_postgres_session)):
+    """
+    Return aggregated dashboard analytics from PostgreSQL `job_features`.
+    """
+    try:
+        rows = session.query(JobFeatures).all()
+
+        if not rows:
+            return {
+                "success": True,
+                "summary": {
+                    "total_jobs": 0,
+                    "unique_companies": 0,
+                    "unique_locations": 0,
+                    "unique_skills": 0,
+                    "last_updated": None,
+                },
+                "top_skills": [],
+                "role_counts": [],
+                "engineering_role_counts": [],
+                "top_locations": [],
+                "top_companies": [],
+                "timeline": [],
+                "roles_by_location": [],
+            }
+
+        skill_counter = Counter()
+        role_counter = Counter()
+        engineering_role_counter = Counter()
+        location_counter = Counter()
+        company_counter = Counter()
+        date_counter = Counter()
+        location_role_counter = defaultdict(Counter)
+
+        engineering_roles = {
+            "Backend Engineer",
+            "Frontend Engineer",
+            "Full Stack Engineer",
+            "DevOps Engineer",
+            "Software Engineer",
+            "Data Engineer",
+            "ML Engineer",
+            "AI Engineer",
+        }
+
+        for row in rows:
+            role = _map_role_from_title(row.title)
+            role_counter[role] += 1
+
+            if role in engineering_roles:
+                engineering_role_counter[role] += 1
+
+            location = (row.location or "Unknown").strip() or "Unknown"
+            company = (row.company_name or "Unknown").strip() or "Unknown"
+
+            location_counter[location] += 1
+            company_counter[company] += 1
+            location_role_counter[location][role] += 1
+
+            for skill in row.skills or []:
+                cleaned = str(skill).strip()
+                if cleaned:
+                    skill_counter[cleaned] += 1
+
+            if row.posted_date:
+                day_key = row.posted_date.date().isoformat()
+                date_counter[day_key] += 1
+
+        top_locations = [
+            {"location": location, "count": count}
+            for location, count in location_counter.most_common(8)
+        ]
+        top_location_set = {item["location"] for item in top_locations}
+
+        roles_by_location = []
+        for location in top_location_set:
+            for role, count in location_role_counter[location].most_common(5):
+                roles_by_location.append(
+                    {
+                        "location": location,
+                        "role": role,
+                        "count": count,
+                    }
+                )
+
+        return {
+            "success": True,
+            "summary": {
+                "total_jobs": len(rows),
+                "unique_companies": len(company_counter),
+                "unique_locations": len(location_counter),
+                "unique_skills": len(skill_counter),
+                "last_updated": datetime.utcnow().isoformat(),
+            },
+            "top_skills": [
+                {"skill": skill, "count": count}
+                for skill, count in skill_counter.most_common(15)
+            ],
+            "role_counts": [
+                {"role": role, "count": count}
+                for role, count in role_counter.most_common(12)
+            ],
+            "engineering_role_counts": [
+                {"role": role, "count": count}
+                for role, count in engineering_role_counter.most_common(12)
+            ],
+            "top_locations": top_locations,
+            "top_companies": [
+                {"company": company, "count": count}
+                for company, count in company_counter.most_common(12)
+            ],
+            "timeline": [
+                {"date": date, "count": count}
+                for date, count in sorted(date_counter.items())
+            ],
+            "roles_by_location": roles_by_location,
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving dashboard analytics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve analytics: {str(e)}")
 
 
 if __name__ == "__main__":

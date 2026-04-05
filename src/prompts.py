@@ -61,10 +61,13 @@ Job required skills:
 {job_skills}
 """
 
-JOB_DESCRIPTION = """You are a job-description summarizer including all the importand points like roles, position, skills required agent.
+JOB_DESCRIPTION = """You are an expert technical recruiter analyzing job descriptions.
 
-        Extract structured information from the job description.
-        {format_instruction} 
+Task: Extract ALL technical skills, programming languages, frameworks, arrays, and tools mentioned in the job description below.
+Even if they are only briefly mentioned or implied, you MUST add them to the skills list! If none are found, list ['None'].
 
-        job_description: 
-        {job_description}"""
+Submit your output strictly in the requested format.
+{format_instruction} 
+
+Job Description text: 
+{job_description}"""

@@ -81,11 +81,6 @@ class Nodes:
             for job in jobs_data:
                 l.append(Job(**job))
 
-            # Persist scraped jobs to Google Sheets
-            if l:
-                logger.info("Writing scraped jobs to Google Sheets")
-                write_jobs_to_sheet(l)
-
             logger.info(f"Successfully scraped {len(l)} jobs")
             return {'jobs': l}
             
@@ -275,9 +270,26 @@ class Nodes:
         except Exception as e:
             logger.error(f"Error generating feedback: {str(e)}", exc_info=True)
             raise
-    
-    
 
-    
-        
-        
+    def write_to_sheets(self, state: GraphState) -> GraphState:
+        """
+        Write all job data including summaries, similarity scores and feedback
+        to Google Sheets.
+
+        Args:
+            state (GraphState): Final workflow state with jobs, summaries and feedbacks.
+
+        Returns:
+            GraphState: Unchanged state.
+        """
+        jobs = state.get('jobs', [])
+        job_summaries = state.get('job_summaries', [])
+        job_feedbacks = state.get('job_feedbacks', [])
+
+        if jobs:
+            logger.info("Writing %d jobs with summaries and feedback to Google Sheets", len(jobs))
+            write_jobs_to_sheet(jobs, job_summaries, job_feedbacks)
+        else:
+            logger.info("No jobs to write to Google Sheets.")
+
+        return {}

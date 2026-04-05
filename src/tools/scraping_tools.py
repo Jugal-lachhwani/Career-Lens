@@ -133,18 +133,18 @@ def fetch_dataset_items_with_wait(
 
 # Main Job Scrapping Function
 
-def job_scraping(job_info_dict):
+def job_scraping(job_info_dict, wait_seconds=20):
     try:
         dataset_id = linkedin_scrapper(job_info_dict)
         logger.info(f"Dataset ID: {dataset_id}")
         logger.info(f"Apify Token: {APIFY_TOKEN}")
 
         # Step 5: Wait & fetch dataset items
-        logger.info("\n--- Step 5: Fetching Dataset Items (wait max 10s) ---")
+        logger.info(f"\n--- Step 5: Fetching Dataset Items (wait max {wait_seconds}s) ---")
         jobs_data = fetch_dataset_items_with_wait(
             dataset_id=dataset_id,
             token=APIFY_TOKEN,
-            wait_seconds=20,
+            wait_seconds=wait_seconds,
             poll_interval=2
         )
 

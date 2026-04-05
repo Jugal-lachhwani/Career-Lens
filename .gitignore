@@ -9,7 +9,7 @@ notebooks/
 **.json
 credentials
 mds
-
+src/data/
 # Logging
 logs/
 *.log

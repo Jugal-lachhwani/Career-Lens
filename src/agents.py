@@ -7,15 +7,11 @@ including job search parsing, resume analysis, and feedback generation.
 
 import logging
 from langchain_core.prompts import PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_ollama import OllamaLLM
 from src.prompts import *
 from src.structure_outputs import *
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-from langchain_core.prompts import PromptTemplate
-from langchain_ollama import OllamaLLM
-from langchain_core.output_parsers import PydanticOutputParser
 
 load_dotenv()
 
@@ -46,81 +42,70 @@ class Agents:
         Initialize all AI agents with their respective models and prompts.
         
         Sets up:
-        - Google Gemini LLM for text generation
-        - HuggingFace embeddings for semantic search
+        - Ollama LLM (llama3.1:8b) for text generation
         - Prompt templates for each agent
-        - Structured output schemas
+        - Structured output schemas with PydanticOutputParser
         """
         logger.info("Initializing AI agents")
         
         # Initialize LLM
-        logger.debug("Loading meta/llama-3.1-70b-instruct model")
-        llm = OllamaLLM(model="llama3.1:8b", temperature=0)
+        logger.debug("Loading qwen2.5:7b model via Ollama")
+        llm = OllamaLLM(model="qwen2.5:7b", temperature=0.2, format="json")
         
         # Job Search Input Agent
         logger.debug("Setting up job searching agent")
-        
-        job_info_parser = PydanticOutputParser(pydantic_object=JobInfo)
+        job_input_parser = PydanticOutputParser(pydantic_object=JobInfo)
         job_searching_prompt = PromptTemplate(
             template=JOB_SERCHING_PROMPT,
-            input_variables=["user_prompt"],
-            partial_variables={
-                "format_instructions": job_info_parser.get_format_instructions()
-            }
+            input_variables=['user_prompt'],
+            partial_variables={"format_instructions": job_input_parser.get_format_instructions()}
         )
         
-        self.job_input_agent = job_searching_prompt | llm | job_info_parser
+        self.job_input_agent = (
+            job_searching_prompt | llm | job_input_parser
+        )
         logger.debug("Job searching agent initialized")
         
         # Job Description Summary Agent
         logger.debug("Setting up job summary agent")
-        
-        job_parser = PydanticOutputParser(pydantic_object=Job_Summary)
+        job_summary_parser = PydanticOutputParser(pydantic_object=Job_Summary)
         job_description_template = PromptTemplate(
-            template=JOB_DESCRIPTION ,
-        input_variables=['job_description'], partial_variables={
-            "format_instruction":job_parser.get_format_instructions()
-            }
+            template=JOB_DESCRIPTION,
+            input_variables=['job_description'],
+            partial_variables={"format_instruction": job_summary_parser.get_format_instructions()}
         )
         
-        self.job_summary_agent = job_description_template | llm | job_parser
+        self.job_summary_agent = (
+            job_description_template | llm | job_summary_parser
+        )
         logger.debug("Job summary agent initialized")
         
         # Resume Extraction Agent
         logger.debug("Setting up resume extraction agent")
-        
         resume_parser = PydanticOutputParser(pydantic_object=Resume)
         resume_template = PromptTemplate(
             template=RESUME,
-            input_variables=["resume_text"],
-            partial_variables={
-                "format_instructions": resume_parser.get_format_instructions()
-            }
+            input_variables=['resume_text'],
+            partial_variables={"format_instructions": resume_parser.get_format_instructions()}
         )
         
-        self.resume_agent = resume_template | llm | resume_parser
-        
+        self.resume_agent = (
+            resume_template | llm | resume_parser
+        )
         logger.debug("Resume extraction agent initialized")
         
         # Resume Feedback Agent
         logger.debug("Setting up resume feedback agent")
-        
         resume_feedback_parser = PydanticOutputParser(pydantic_object=SimilarityAndFeedback)
         resume_feedback_template = PromptTemplate(
             template=RESUME_FEEDBACK,
-            input_variables=[
-            "resume_skills",
-            "resume_profile",
-            "job_info",
-            "job_skills"
-            ],
-            partial_variables={
-                "format_instructions": resume_feedback_parser.get_format_instructions()
-            }
+            input_variables=['resume_skills', 'resume_profile', 'job_skills', 'job_info'],
+            partial_variables={"format_instructions": resume_feedback_parser.get_format_instructions()}
         )
-
-        self.resume_feedback_agent = resume_feedback_template | llm | resume_feedback_parser
         
+        self.resume_feedback_agent = (
+            resume_feedback_template | llm | resume_feedback_parser
+        )
         logger.debug("Resume feedback agent initialized")
         
         logger.info("All AI agents initialized successfully")
