@@ -1,0 +1,159 @@
+# CareerLens — Docker Compose (local production simulation)
+# Services: postgres · redis · api · worker · nginx
+#
+# Usage:
+#   docker compose up --build          # first run (builds images)
+#   docker compose up -d               # background
+#   docker compose logs -f api worker  # tail logs
+#   docker compose down                # stop all
+#   docker compose down -v             # stop + wipe volumes
+
+
+
+services:
+
+  # ============================================================
+  # PostgreSQL  —  primary + analytics database
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: careerlens_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ============================================================
+  # Redis  —  Celery broker + result backend
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: careerlens_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes   # persist tasks across restarts
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ============================================================
+  # FastAPI  —  HTTP API (multi-process Uvicorn)
+  # ============================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: careerlens_api
+    image: careerlens-api:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Override host/URL to use Docker service names
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      # Worker count: override to tune for your machine
+      UVICORN_WORKERS: "4"
+    volumes:
+      # Persist logs outside the container
+      - ./logs:/app/logs
+      # Mount resume uploads dir so worker can read temp files written by api
+      - resume_tmp:/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ============================================================
+  # Celery Worker  —  background job-search tasks
+  # ============================================================
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: careerlens_worker
+    image: careerlens-api:latest        # reuse the same image
+    restart: unless-stopped
+    # Override the CMD from the Dockerfile
+    command: >
+      celery -A src.tasks worker
+        --loglevel=info
+        --concurrency=4
+        --max-tasks-per-child=50
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./logs:/app/logs
+      - resume_tmp:/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ============================================================
+  # Nginx  —  reverse proxy + static frontend
+  # ============================================================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: careerlens_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+      # TLS certs (bind-mount after running certbot)
+      # Uncomment when you have certs:
+      # - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+# ============================================================
+# Named volumes
+# ============================================================
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+  resume_tmp:
+    driver: local

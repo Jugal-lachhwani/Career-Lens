@@ -29,9 +29,22 @@ engine = create_engine(
 )
 
 
+import time
+from sqlalchemy.exc import IntegrityError, ProgrammingError
+
 def init_db():
     """Create all tables that don't already exist. Idempotent."""
-    SQLModel.metadata.create_all(engine)
+    # Add retries to handle race conditions when multiple workers start simultaneously
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            SQLModel.metadata.create_all(engine, checkfirst=True)
+            break
+        except (IntegrityError, ProgrammingError) as e:
+            if attempt == max_retries - 1:
+                print(f"Warning: Database initialization failed after {max_retries} attempts: {e}")
+            else:
+                time.sleep(2)  # Wait for other worker to finish creating tables
 
 
 def get_session():

@@ -1,0 +1,73 @@
+# ============================================================
+# .dockerignore — files excluded from the Docker build context
+# Keeps the image lean and avoids leaking secrets
+# ============================================================
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python cache / bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments & conda
+.venv/
+venv/
+env/
+*.env.local
+
+# Secrets — NEVER bake into image
+.env
+.env.*
+credentials/
+
+# Dev / test artifacts
+tests/
+notebooks/
+experiment_notebooks/
+*.ipynb
+
+# Logs & databases (should come from volumes)
+logs/
+*.log
+*.db
+*.sqlite
+
+# Large data files
+job_data_*.json
+job_descriptions/
+mds/
+trial/
+Workflow_pdf/
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Documentation (not needed at runtime)
+*.md
+*.tex
+text.txt
+toDo.txt
+Deployment.txt
+*.pdf
+!Resume.pdf       # Keep if you want default resume inside image; remove if not
+
+# Node modules (frontend served by nginx, not by the Python image)
+node_modules/
+frontend/
+
+# Docker config itself
+Dockerfile
+docker-compose.yml
+nginx/
