@@ -18,15 +18,21 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 from src.graph import Workflow
+from src.career_chatbot import CareerLensBot
 from src.Database.database import init_db, engine
-from src.models import JobListing, JobAnalysis, SearchHistory
+from src.models import JobListing, JobAnalysis, SearchHistory, ChatSession, ChatMessage
 from src.Postres.postres import SessionLocal as PostgresSessionLocal
 from src.Postres.models import JobFeatures
 from src.Database.db_operations import (
     save_workflow_results,
     get_all_jobs,
     get_job_with_analysis,
-    get_search_history
+    get_search_history,
+    create_chat_session,
+    get_chat_session,
+    list_chat_sessions,
+    save_chat_message,
+    list_chat_messages,
 )
 
 # Create logs directory if it doesn't exist
@@ -42,6 +48,11 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Reduce noisy third-party logs for cleaner console output.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("langchain").setLevel(logging.WARNING)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -61,6 +72,7 @@ app.add_middleware(
 
 # Global workflow instance (initialize once for efficiency)
 workflow_instance = None
+career_bot_instance = None
 
 # Initialize database on startup
 @app.on_event("startup")
@@ -95,6 +107,15 @@ def get_workflow():
     return workflow_instance
 
 
+def get_career_bot():
+    """Get or create CareerLens chatbot instance."""
+    global career_bot_instance
+    if career_bot_instance is None:
+        logger.info("Initializing CareerLens bot instance")
+        career_bot_instance = CareerLensBot()
+    return career_bot_instance
+
+
 # Response Models
 class JobSummaryResponse(BaseModel):
     """Job summary response model."""
@@ -127,6 +148,33 @@ class JobSearchResponse(BaseModel):
     job_feedbacks: List[JobFeedbackResponse]
     resume_fields: ResumeFieldsResponse
     message: str
+
+
+class CareerChatResponse(BaseModel):
+    """CareerLens chatbot response model."""
+    success: bool
+    session_id: int
+    answer: str
+    tools_used: List[str]
+    analytics_used: bool
+    live_jobs_used: bool
+    live_jobs_count: int
+    top_skill_gaps: List[str]
+
+
+class ChatSessionResponse(BaseModel):
+    id: int
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    session_id: int
+    role: str
+    content: str
+    created_at: str
 
 
 ROLE_TITLE_HINTS = {
@@ -164,6 +212,7 @@ async def root():
         "endpoints": {
             "health": "/health",
             "process": "/process-job-search",
+            "career_chat": "/career-chat",
             "docs": "/docs"
         }
     }
@@ -536,6 +585,135 @@ async def get_dashboard_analytics(session=Depends(get_postgres_session)):
     except Exception as e:
         logger.error(f"Error retrieving dashboard analytics: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve analytics: {str(e)}")
+
+
+@app.post("/career-chat", response_model=CareerChatResponse)
+async def career_chat(
+    question: str = Form(..., description="User career question for CareerLens chatbot"),
+    session_id: Optional[int] = Form(None, description="Optional chat session id for history"),
+    resume: Optional[UploadFile] = File(None, description="Optional resume PDF for live resume-job matching"),
+    live_job_query: Optional[str] = Form(None, description="Optional explicit query for live job extraction"),
+    force_live_jobs: bool = Form(False, description="Force live job extraction and matching flow"),
+    db_session: Session = Depends(get_db_session),
+    postgres_session=Depends(get_postgres_session),
+):
+    """
+    CareerLens GenAI chatbot endpoint.
+
+    Features:
+    - Uses analytics data for trend/skill guidance questions
+    - Can trigger live job search + resume matching when required
+    - Returns coaching-style guidance
+    """
+    temp_resume_path = None
+
+    try:
+        if resume is not None:
+            if not resume.filename.endswith(".pdf"):
+                raise HTTPException(status_code=400, detail="Only PDF files are supported for resume")
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                content = await resume.read()
+                tmp.write(content)
+                temp_resume_path = tmp.name
+                logger.info("Career chat resume saved to temporary path: %s", temp_resume_path)
+
+        workflow = get_workflow()
+        career_bot = get_career_bot()
+
+        # Create or load persistent chat session
+        chat_session = None
+        if session_id is not None:
+            chat_session = get_chat_session(db_session, session_id)
+            if chat_session is None:
+                raise HTTPException(status_code=404, detail=f"Chat session {session_id} not found")
+        else:
+            title = (question[:60] + "...") if len(question) > 60 else question
+            chat_session = create_chat_session(db_session, title=title)
+
+        save_chat_message(db_session, chat_session.id, "user", question)
+
+        recent_messages = list_chat_messages(db_session, session_id=chat_session.id, limit=20)
+        history_payload = [
+            {"role": m.role, "content": m.content}
+            for m in recent_messages[:-1]  # exclude current user message; passed separately as `question`
+        ]
+
+        result = career_bot.answer(
+            question=question,
+            postgres_session=postgres_session,
+            job_features_model=JobFeatures,
+            workflow=workflow,
+            chat_history=history_payload,
+            resume_path=temp_resume_path,
+            live_job_query=live_job_query,
+            force_live_jobs=force_live_jobs,
+        )
+
+        save_chat_message(db_session, chat_session.id, "assistant", result.answer)
+
+        return CareerChatResponse(
+            success=True,
+            session_id=chat_session.id,
+            answer=result.answer,
+            tools_used=result.tools_used,
+            analytics_used=result.analytics_used,
+            live_jobs_used=result.live_jobs_used,
+            live_jobs_count=result.live_jobs_count,
+            top_skill_gaps=result.top_skill_gaps,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error in career chat endpoint: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process career chat: {str(e)}")
+    finally:
+        if temp_resume_path and os.path.exists(temp_resume_path):
+            try:
+                os.unlink(temp_resume_path)
+            except Exception as cleanup_error:
+                logger.warning("Failed to delete temporary file: %s", str(cleanup_error))
+
+
+@app.get("/career-chat/sessions", response_model=List[ChatSessionResponse])
+async def career_chat_sessions(
+    limit: int = 30,
+    db_session: Session = Depends(get_db_session),
+):
+    rows = list_chat_sessions(db_session, limit=limit)
+    return [
+        ChatSessionResponse(
+            id=row.id,
+            title=row.title,
+            created_at=row.created_at.isoformat(),
+            updated_at=row.updated_at.isoformat(),
+        )
+        for row in rows
+    ]
+
+
+@app.get("/career-chat/history/{session_id}", response_model=List[ChatMessageResponse])
+async def career_chat_history(
+    session_id: int,
+    limit: int = 200,
+    db_session: Session = Depends(get_db_session),
+):
+    chat_session = get_chat_session(db_session, session_id)
+    if chat_session is None:
+        raise HTTPException(status_code=404, detail=f"Chat session {session_id} not found")
+
+    rows = list_chat_messages(db_session, session_id=session_id, limit=limit)
+    return [
+        ChatMessageResponse(
+            id=row.id,
+            session_id=row.session_id,
+            role=row.role,
+            content=row.content,
+            created_at=row.created_at.isoformat(),
+        )
+        for row in rows
+    ]
 
 
 if __name__ == "__main__":

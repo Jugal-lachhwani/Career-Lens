@@ -216,4 +216,6 @@ async function loadDashboard() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', loadDashboard);
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboard();
+});

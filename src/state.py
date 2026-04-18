@@ -5,7 +5,7 @@ This module defines all state models and data structures used throughout
 the job search and resume analysis workflow.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, TypedDict, Set, Annotated
 import operator
 
@@ -55,6 +55,13 @@ class Job(BaseModel):
     applicationsCount: str
     description: str
 
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_id_to_string(cls, value):
+        if value is None:
+            raise ValueError("Job id cannot be None")
+        return str(value)
+
 
 class Job_Info_state(BaseModel):
     """
@@ -94,11 +101,11 @@ class Job_Summary(BaseModel):
     Attributes:
         job_info (str): Concise summary of the job role and responsibilities.
         job_skills (List[str]): List of required skills extracted from description.
-        id (int): Unique identifier linking to the original Job.
+        id (str): Unique identifier linking to the original Job.
     """
     job_info: str
     job_skills: List[str]
-    id: int
+    id: str
 
 
 class Job_Feedback(BaseModel):
@@ -107,11 +114,11 @@ class Job_Feedback(BaseModel):
     
     Attributes:
         similarity (int): Similarity score (0-100) between resume and job.
-        job_id (int): Job ID this feedback relates to.
+        job_id (str): Job ID this feedback relates to.
         feedback (str): Detailed feedback on what's missing or needs improvement.
     """
     similarity: int
-    id: int
+    id: str
     feedback: str
 
 
@@ -148,21 +155,21 @@ class GraphState(TypedDict):
         job_info (Job_Info_state): Structured job search parameters.
         resume_text (str): Raw text extracted from resume PDF.
         jobs (List[Job]): List of scraped job postings.
-        visited_ids (Set[int]): Set of job IDs already processed for summaries.
+        visited_ids (Set[str]): Set of job IDs already processed for summaries.
         job_summaries (Annotated[List[Job_Summary], operator.add]): 
             Accumulated list of job summaries (nodes can append to it).
         resume_fields (Resume_Fields): Structured resume information.
         job_feedbacks (Annotated[List[Job_Feedback], operator.add]): 
             Accumulated feedback and similarity scores for jobs.
-        visited_ids_feedback (Set[int]): Set of job IDs already processed for feedback.
+        visited_ids_feedback (Set[str]): Set of job IDs already processed for feedback.
     """
     user_input: str
     resume_path: str
     job_info: Job_Info_state
     resume_text: str
     jobs: List[Job]
-    visited_ids: Set[int]
+    visited_ids: Set[str]
     job_summaries: Annotated[List[Job_Summary], operator.add]
     resume_fields: Resume_Fields
     job_feedbacks: Annotated[List[Job_Feedback], operator.add]
-    visited_ids_feedback: Set[int]
+    visited_ids_feedback: Set[str]

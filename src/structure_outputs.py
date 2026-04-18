@@ -5,7 +5,7 @@ This module defines Pydantic models that structure the outputs from
 various AI agents, ensuring type safety and data validation.
 """
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 from typing import List
 from enum import Enum
 
@@ -72,7 +72,7 @@ class JobInfo(BaseModel):
         description="The name of the country where job needs to be find, If any city name is entered then think of the contry in which the city exist",
         examples=['India', 'America']
     )
-    days: int | None = Field(
+    days: int = Field(
         default=7,
         description="Job posted within the last days",
         examples=[1, 3, 7, 14]
@@ -108,6 +108,12 @@ class JobInfo(BaseModel):
         ge=1,
         examples=[3, 1, 2]
     )
+
+    @field_validator("days", mode="before")
+    @classmethod
+    def default_days_when_null(cls, value):
+        # LLM output occasionally returns null; default to 7 days instead of failing later.
+        return 7 if value is None else value
     
     @computed_field
     @property
@@ -118,7 +124,7 @@ class JobInfo(BaseModel):
         Returns:
             str: Date filter in format 'r{seconds}' for LinkedIn API.
         """
-        return "r" + str(self.days * 86400)
+        return "r" + str(int(self.days) * 86400)
 
     @computed_field
     @property

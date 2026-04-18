@@ -40,10 +40,47 @@ The system uses **LangGraph** to manage a multi-agent state machine, executing t
 ## 🧠 Key Features
 
 * **Natural Language Search:** Simply type *"Looking for a data science internship in Germany"*.
-* **Zero-Cost Local Inference:** Fully compatible with **Ollama** (e.g., Llama 3.1 7B). Optimized prompt engineering allows the workflow to run locally with zero API costs and total privacy.
+* **Cloud Inference via NVIDIA NIM:** Uses NVIDIA NIM as the unified LLM backend for all AI modules.
 * **Strict Structured Data:** Uses **Pydantic** to force LLMs to return reliable JSON, ensuring the matching engine never fails due to formatting issues.
 * **Automated Job CRM:** Automatically pushes matched jobs, scores, and feedback into a **Google Spreadsheet** for easy tracking.
 * **Sleek Frontend:** A responsive web interface built with HTML/CSS/JS for a seamless user experience.
+* **CareerLens Chatbot (Module 3):** A GenAI career guide that uses analytics context and can trigger live job+resume matching on demand.
+
+---
+
+## 🧩 Module 3: CareerLens Chatbot
+
+New endpoint: `POST /career-chat`
+
+What it does:
+- Reads analytics context (trending jobs, top skills, locations) from PostgreSQL feature tables.
+- Answers strategy questions like "which skills should I upgrade next?".
+- Can trigger live job extraction + resume matching flow when requested.
+
+Form fields:
+- `question` (required): User question for career guidance.
+- `resume` (optional): PDF resume file; required if live matching is needed.
+- `live_job_query` (optional): Explicit query for live job scraping/matching.
+- `force_live_jobs` (optional, bool): Force live extraction + matching path.
+
+---
+
+## 🧠 LLM Backend (NVIDIA NIM)
+
+Module 1 and Module 3 now use NVIDIA NIM as the only supported LLM backend.
+
+Configuration:
+```env
+LLM_PROVIDER=nvidia_nim
+NVIDIA_NIM_API_KEY=your_nim_api_key
+NVIDIA_NIM_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_NIM_MODEL=meta/llama-3.1-70b-instruct
+```
+
+Dependency note for NIM:
+```bash
+pip install langchain-openai
+```
 
 ---
 
@@ -53,7 +90,7 @@ The system uses **LangGraph** to manage a multi-agent state machine, executing t
 | :--- | :--- |
 | **Language** | Python |
 | **AI Orchestration** | LangGraph / LangChain |
-| **LLMs** | Gemini 2.5 Flash Lite (Cloud) / Llama 3.1 7B (Local via Ollama) |
+| **LLMs** | NVIDIA NIM (OpenAI-compatible endpoint) |
 | **Scraping** | Apify (LinkedIn Actor) |
 | **Backend & DB** | FastAPI / SQLModel / SQLite |
 | **Frontend** | Vanilla HTML, CSS, & JavaScript |

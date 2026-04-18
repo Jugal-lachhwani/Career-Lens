@@ -10,6 +10,7 @@ from datetime import datetime
 import logging
 
 from src.models import JobListing, JobAnalysis, SearchHistory
+from src.models import ChatSession, ChatMessage
 from src.state import Job, Job_Feedback
 from src.structure_outputs import Job_Summary
 
@@ -75,7 +76,7 @@ def save_job_analysis(
     if existing_analysis:
         # Update existing analysis
         existing_analysis.summary = summary.job_info
-        existing_analysis.skills = summary.job_skills
+        existing_analysis.skills = list(summary.job_skills)   # native PG array
         existing_analysis.similarity_score = feedback.similarity
         existing_analysis.feedback = feedback.feedback
         logger.debug(f"Updated analysis for job {job_id}")
@@ -85,10 +86,10 @@ def save_job_analysis(
     analysis = JobAnalysis(
         job_id=job_id,
         summary=summary.job_info,
+        skills=list(summary.job_skills),                       # native PG array
         similarity_score=feedback.similarity,
         feedback=feedback.feedback
     )
-    analysis.skills = summary.job_skills  # Uses the property setter
     
     session.add(analysis)
     logger.debug(f"Saved analysis for job {job_id}")
@@ -217,3 +218,44 @@ def save_workflow_results(
         session.rollback()
         logger.error(f"Error saving workflow results: {str(e)}", exc_info=True)
         raise
+
+
+def create_chat_session(session: Session, title: str | None = None) -> ChatSession:
+    chat_session = ChatSession(title=title or "New Chat")
+    session.add(chat_session)
+    session.commit()
+    session.refresh(chat_session)
+    return chat_session
+
+
+def get_chat_session(session: Session, session_id: int) -> ChatSession | None:
+    return session.get(ChatSession, session_id)
+
+
+def list_chat_sessions(session: Session, limit: int = 30) -> List[ChatSession]:
+    statement = select(ChatSession).order_by(ChatSession.updated_at.desc()).limit(limit)
+    rows = session.exec(statement).all()
+    return list(rows)
+
+
+def save_chat_message(session: Session, session_id: int, role: str, content: str) -> ChatMessage:
+    msg = ChatMessage(session_id=session_id, role=role, content=content)
+    session.add(msg)
+
+    chat_session = session.get(ChatSession, session_id)
+    if chat_session:
+        chat_session.updated_at = datetime.utcnow()
+    session.commit()
+    session.refresh(msg)
+    return msg
+
+
+def list_chat_messages(session: Session, session_id: int, limit: int = 200) -> List[ChatMessage]:
+    statement = (
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc())
+        .limit(limit)
+    )
+    rows = session.exec(statement).all()
+    return list(rows)

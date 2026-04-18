@@ -8,9 +8,9 @@ including job search parsing, resume analysis, and feedback generation.
 import logging
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_ollama import OllamaLLM
 from src.prompts import *
 from src.structure_outputs import *
+from src.llm_factory import get_json_llm
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -48,9 +48,9 @@ class Agents:
         """
         logger.info("Initializing AI agents")
         
-        # Initialize LLM
-        logger.debug("Loading qwen2.5:7b model via Ollama")
-        llm = OllamaLLM(model="qwen2.5:7b", temperature=0.2, format="json")
+        # Initialize provider-configured LLM (Ollama or NVIDIA NIM)
+        logger.debug("Loading provider-configured LLM for structured outputs")
+        llm = get_json_llm(temperature=0.2)
         
         # Job Search Input Agent
         logger.debug("Setting up job searching agent")

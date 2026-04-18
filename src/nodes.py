@@ -79,7 +79,10 @@ class Nodes:
             # Convert scraped items to Job objects
             l = []
             for job in jobs_data:
-                l.append(Job(**job))
+                normalized_job = dict(job)
+                if normalized_job.get('id') is not None:
+                    normalized_job['id'] = str(normalized_job['id'])
+                l.append(Job(**normalized_job))
 
             logger.info(f"Successfully scraped {len(l)} jobs")
             return {'jobs': l}
