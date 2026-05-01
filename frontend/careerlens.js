@@ -13,8 +13,13 @@ function appendMessage(role, content) {
     wrap.className = `message ${role}`;
 
     const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = content;
+    bubble.className = 'bubble markdown-body';
+    
+    if (typeof marked !== 'undefined') {
+        bubble.innerHTML = marked.parse(content);
+    } else {
+        bubble.textContent = content;
+    }
 
     wrap.appendChild(bubble);
     chatMessages.appendChild(wrap);

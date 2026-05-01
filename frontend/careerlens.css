@@ -115,6 +115,19 @@
     line-height: 1.45;
 }
 
+.bubble.markdown-body {
+    white-space: normal;
+}
+
+.bubble.markdown-body p {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+}
+
+.bubble.markdown-body p:last-child {
+    margin-bottom: 0;
+}
+
 .message.user .bubble {
     background: #2563eb;
     color: #ffffff;
