@@ -69,4 +69,53 @@ Here is a breakdown of the technologies used in Career Lens and the rationale be
 
 ## 📋 Getting Started
 
-*(Note: Provide instructions here for setting up the environment, installing dependencies via `requirements.txt`, setting up database credentials, and running the FastAPI server via Uvicorn or Docker.)*
+The easiest way to get Career Lens up and running is by using Docker Compose, which spins up the FastAPI backend, PostgreSQL database, Redis message broker, Celery workers, and Nginx proxy seamlessly.
+
+### 1. Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/)
+- API Keys for Google GenAI or other configured LLMs
+- Apify API Key (for job scraping)
+
+### 2. Environment Setup
+Clone the repository and configure your environment variables:
+```bash
+git clone https://github.com/Jugal-lachhwani/Job_AI_Agent_Local.git
+cd Job_AI_Agent_Local
+
+# Create a copy of the environment template (if available) or create a new .env file
+touch .env
+```
+
+Populate the `.env` file with your credentials:
+```env
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+DB_NAME=careerlens_db
+API_KEY=your_secure_api_key_for_backend
+APIFY_API_TOKEN=your_apify_token
+GOOGLE_API_KEY=your_gemini_api_key
+```
+
+### 3. Launch the Application
+Run the following command to build the images and start all services in the background:
+```bash
+docker compose up --build -d
+```
+
+### 4. Accessing the Application
+Once the containers are healthy, you can access the services:
+- **Web Frontend:** Open `http://localhost:80` (or just `http://localhost`) in your browser to access the Career Lens user interface.
+- **API Documentation:** Open `http://localhost:8000/docs` to interact with the Swagger UI and test the API endpoints directly.
+
+### 5. Managing Services
+To view logs for the API and background workers:
+```bash
+docker compose logs -f api worker
+```
+
+To stop all services:
+```bash
+docker compose down
+```
+
+*(To completely wipe the database and queues, run `docker compose down -v`)*
