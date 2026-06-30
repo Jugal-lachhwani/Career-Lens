@@ -263,13 +263,6 @@ class CareerLensBot:
             lines.append("")
             lines.append("To run live resume-job matching, upload your resume PDF and re-run with force-live enabled.")
 
-        lines.append("")
-        lines.append("Next 30-day upgrade plan:")
-        lines.append("- Week 1: Strengthen foundations (Python, SQL, data structures, stats).")
-        lines.append("- Week 2: Build one project aligned with target role requirements.")
-        lines.append("- Week 3: Add cloud/deployment + model serving or backend integration.")
-        lines.append("- Week 4: Resume rewrite with quantified impact + targeted applications.")
-
         return "\n".join(lines)
 
     def answer(

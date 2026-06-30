@@ -13,10 +13,15 @@ from typing import List, Optional
 import logging
 import tempfile
 import os
+import sys
 from pathlib import Path
 from sqlmodel import Session
 from collections import Counter, defaultdict
 from datetime import datetime
+
+# Allow direct execution via `python src/api.py` by ensuring the repo root is on sys.path.
+if __package__ in {None, ""}:
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # --- Phase 4: Auth & CORS --------------------------------------------------
 from src.auth import verify_api_key
@@ -26,8 +31,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-# --- Celery task (Step 3.2) ------------------------------------------------
-from src.tasks import run_job_search_task, celery_app as _celery_app
+from contextlib import asynccontextmanager
 
 from src.graph import Workflow
 from src.career_chatbot import CareerLensBot
@@ -66,11 +70,20 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("langchain").setLevel(logging.WARNING)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize database tables on application startup."""
+    logger.info("Initializing database...")
+    init_db()
+    logger.info("Database initialized successfully")
+    yield
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Job Search Agent API",
     description="AI-powered job search and resume matching service",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # --- Wire up rate limiter (Step 3.3) --------------------------------------
@@ -100,13 +113,7 @@ app.add_middleware(
 workflow_instance = None
 career_bot_instance = None
 
-# Initialize database on startup
-@app.on_event("startup")
-def on_startup():
-    """Initialize database tables on application startup."""
-    logger.info("Initializing database...")
-    init_db()
-    logger.info("Database initialized successfully")
+# Lifespan initialized database above
 
 
 def get_db_session():
@@ -256,141 +263,98 @@ async def health_check():
 
 
 # ---------------------------------------------------------------------------
-# Step 3.2 — Async job-search endpoint (returns 202 immediately)
+# Synchronous job-search endpoint
 # ---------------------------------------------------------------------------
 
-class TaskAcceptedResponse(BaseModel):
-    """Returned immediately when a job-search task is accepted."""
-    task_id: str
-    status: str        # always "accepted"
-    poll_url: str      # client should GET this URL to check progress
-
-
-@app.post("/process-job-search", response_model=TaskAcceptedResponse, status_code=202)
-@limiter.limit("5/minute")    # Step 3.3 — max 5 job searches per minute per IP
+@app.post("/process-job-search", response_model=JobSearchResponse)
+@limiter.limit("5/minute")
 async def process_job_search(
-    request: Request,           # Required by slowapi rate-limiter
+    request: Request,
     user_input: str = Form(..., description="Enter your job search query"),
     resume: UploadFile = File(..., description="Upload Resume PDF file (must be .pdf file)"),
-    _key: str = Depends(verify_api_key),   # Phase 4 — API key required
+    db_session: Session = Depends(get_db_session),
+    _key: str = Depends(verify_api_key),
 ):
     """
-    Accepts a job search request and dispatches it to a Celery background worker.
-
-    The endpoint returns **immediately** with HTTP 202 Accepted + a task_id.
-    The actual workflow (Apify scraping + LLM calls, ~30-90 s) runs in the
-    background.  Poll GET /tasks/{task_id} to check progress and retrieve
-    the final result.
-
-    Args:
-        user_input: Natural language query
-                    (e.g. "Find ML Engineer jobs in Bangalore with 2 years exp")
-        resume:     PDF file of the candidate's resume.
-
-    Returns:
-        202 TaskAcceptedResponse  →  { task_id, status, poll_url }
-
-    Raises:
-        400: If the uploaded file is not a PDF.
-        429: If the rate limit (5 requests/minute per IP) is exceeded.
-        500: If task dispatch itself fails.
+    Accepts a job search request and dispatches it to the LangGraph workflow.
     """
     temp_resume_path = None
 
     try:
-        logger.info("Received job search request (async): %r", user_input)
+        logger.info("Received job search request: %r", user_input)
 
-        # --- Validate file type -------------------------------------------
         if not resume.filename.endswith(".pdf"):
             raise HTTPException(
                 status_code=400,
                 detail="Only PDF files are supported for resume."
             )
 
-        # --- Persist resume to a temp file so the Celery worker can read it --
-        # NOTE: The temp file is NOT deleted here — the Celery worker reads it
-        # after this request returns.  The worker is responsible for cleanup.
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             content = await resume.read()
             tmp.write(content)
             temp_resume_path = tmp.name
             logger.info("Resume saved to temporary path: %s", temp_resume_path)
 
-        # --- Dispatch to Celery (non-blocking) --------------------------------
-        task = run_job_search_task.delay(user_input, temp_resume_path)
-        logger.info("Job search task dispatched [task_id=%s]", task.id)
+        workflow = get_workflow()
+        initial_state = {
+            "user_input": user_input,
+            "resume_path": temp_resume_path,
+            "visited_ids": set(),
+            "visited_ids_feedback": set(),
+        }
 
-        return TaskAcceptedResponse(
-            task_id=task.id,
-            status="accepted",
-            poll_url=f"/tasks/{task.id}",
+        logger.info("Invoking LangGraph workflow")
+        final_state = workflow.app.invoke(initial_state)
+        logger.info("Workflow completed")
+        
+        jobs = final_state.get("jobs", [])
+        summaries = final_state.get("job_summaries", [])
+        feedbacks = final_state.get("job_feedbacks", [])
+        resume_fields = final_state.get("resume_fields")
+        
+        # Save results to database
+        try:
+            save_workflow_results(
+                db_session,
+                user_input,
+                resume.filename,
+                jobs,
+                summaries,
+                feedbacks
+            )
+        except Exception as e:
+            logger.error("Error saving workflow results to DB: %s", str(e))
+            # Continue even if DB save fails
+            
+        def _obj_to_dict(obj):
+            if hasattr(obj, "model_dump"):
+                return obj.model_dump()
+            if hasattr(obj, "dict"):
+                return obj.dict()
+            return obj
+            
+        return JobSearchResponse(
+            success=True,
+            job_summaries=[_obj_to_dict(s) for s in summaries],
+            job_feedbacks=[_obj_to_dict(f) for f in feedbacks],
+            resume_fields=_obj_to_dict(resume_fields) if resume_fields else {},
+            message="Job search completed successfully"
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error dispatching job search task: %s", str(e), exc_info=True)
-        # Clean up temp file if dispatch failed
+        logger.error("Error processing job search: %s", str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process job search: {str(e)}",
+        )
+    finally:
         if temp_resume_path and os.path.exists(temp_resume_path):
             try:
                 os.unlink(temp_resume_path)
             except Exception:
                 pass
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to dispatch job search task: {str(e)}",
-        )
-
-
-# ---------------------------------------------------------------------------
-# Step 3.2 — Task status / result polling endpoint
-# ---------------------------------------------------------------------------
-
-@app.get("/tasks/{task_id}")
-async def get_task_status(task_id: str):
-    """
-    Poll the status and result of a background job-search task.
-
-    States:
-        pending  — task is queued, not yet picked up by a worker
-        running  — worker has started execution
-        complete — workflow finished; `result` contains the full output
-        failed   — workflow failed after retries; `error` contains the reason
-
-    Args:
-        task_id: The task ID returned by POST /process-job-search.
-
-    Returns:
-        JSON with `status` and optionally `result` or `error`.
-    """
-    result = _celery_app.AsyncResult(task_id)
-
-    if result.state == "PENDING":
-        return JSONResponse({"status": "pending", "task_id": task_id})
-
-    elif result.state == "STARTED":
-        return JSONResponse({"status": "running", "task_id": task_id})
-
-    elif result.state == "SUCCESS":
-        return JSONResponse({
-            "status": "complete",
-            "task_id": task_id,
-            "result": result.result,   # dict serialised by _serialize_state()
-        })
-
-    elif result.state == "FAILURE":
-        return JSONResponse(
-            status_code=200,           # 200 so the client doesn't treat it as a transport error
-            content={
-                "status": "failed",
-                "task_id": task_id,
-                "error": str(result.info),
-            },
-        )
-
-    else:
-        # RETRY, REVOKED, etc.
-        return JSONResponse({"status": result.state.lower(), "task_id": task_id})
 
 
 @app.get("/jobs")

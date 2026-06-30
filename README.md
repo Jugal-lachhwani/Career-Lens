@@ -135,7 +135,7 @@ GEMINI_API_KEY=your_gemini_api_key
 Start the FastAPI backend:
 
 Bash
-python src/api.py
+python -m src.api
 Access the UI by opening frontend/index.html in your browser.
 
 📌 Future Enhancements
