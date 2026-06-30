@@ -1,156 +1,72 @@
-# 🤖 JobAlign AI (Job AI Agent)
+# Career Lens
 
-[![Medium Blog](https://img.shields.io/badge/Medium-Read_the_Blog-black?logo=medium)](https://medium.com/p/6980a7c5fcf4)
+Welcome to **Career Lens**, an AI-powered job search agent and career mentor application. Career Lens goes beyond simple job boards by intelligently matching your resume to live job openings, providing real-time market analytics, and offering personalized career coaching.
 
-An **Agentic AI career assistant** that automates the exhausting job search process. JobAlign AI takes a natural language query, fetches live job postings, parses your resume, and provides a definitive similarity score with actionable feedback to help you land the role.
-
----
-
-## 🚀 Overview
-
-Instead of manually navigating job boards and guessing if your resume passes an ATS (Applicant Tracking System), JobAlign AI acts as your automated career advocate. 
-
-Powered by **LangGraph**, it utilizes a multi-agent workflow to process tasks in parallel:
-1.  **Intent Understanding:** Translates your natural language query into structured API parameters.
-2.  **Live Market Scraping:** Scrapes real-time, relevant jobs from platforms like LinkedIn via Apify.
-3.  **Resume Parsing:** Extracts structured data (skills, projects, experience) from your uploaded PDF resume.
-4.  **Intelligent Evaluation:** An evaluator agent cross-references your profile against job requirements to generate a 0-100 similarity score and tailored feedback.
+The application leverages advanced AI techniques using **LangChain** and **LangGraph**, alongside a robust backend powered by **FastAPI** and **PostgreSQL**.
 
 ---
 
-## 🏗️ Workflow
+## 🚀 Modules and Features
 
-The system uses **LangGraph** to manage a multi-agent state machine, executing tasks in parallel for maximum efficiency:
+### 1. Job Searching & Resume Matching
+This module automates the tedious process of finding relevant jobs and figuring out if you are a good fit. It uses a concurrent LangGraph workflow to process live job data and your resume side-by-side.
 
+**Key Features:**
+- **Live Job Search:** Scrapes and fetches active job listings based on your specific queries.
+- **Concurrent Extraction:** Uses parallel graph execution to extract structured fields (skills, experience, requirements) from both the job descriptions and your uploaded PDF resume.
+- **Similarity Scoring:** AI-driven comparison between your extracted resume profile and the job requirements to calculate a fit score.
+- **Actionable Feedback:** Generates tailored feedback highlighting exactly which skills you meet and which ones are missing, helping you tailor your applications.
 
+### 2. Job Real-Time Analytics
+An aggregated market intelligence dashboard that pulls data from tracked job postings to give you a bird's-eye view of the current job market.
 
-1.  **Input Trigger:** The user enters a job query and uploads a PDF resume.
-2.  **Parallel Track A (The Scout):**
-    * An agent interprets user intent and structures search parameters.
-    * The system scrapes live jobs from LinkedIn via **Apify**.
-    * A "Jobs Analyzer" agent distills messy descriptions into core requirements.
-3.  **Parallel Track B (The Parser):**
-    * The system extracts raw text from the PDF.
-    * A "Resume Fields Extractor" agent structures skills, experience, and projects into a clean schema.
-4.  **Convergence:** Both tracks meet at the **Feedback & Similarity** node.
-5.  **Output:** The system calculates a match score, generates feedback, and logs results to a local **SQLite** database and **Google Sheets**.
+**Key Features:**
+- **Market Trends:** Tracks the total number of jobs, top companies hiring, and geographic hotspots.
+- **Skill Demand Analysis:** Identifies the most demanded skills across the industry and breaks them down by specific roles (e.g., Data Engineer vs. Frontend Developer).
+- **Role Analytics:** Monitors which roles are most active and how they map to specific geographic locations.
+- **Time-Series Tracking:** Timeline visualizations of job posting frequencies to identify hiring seasons.
 
----
+### 3. Career ChatBot (CareerLens Mentor)
+A generative AI chatbot that acts as your personalized career coach, grounded in real data rather than generic advice.
 
-## 🧠 Key Features
-
-* **Natural Language Search:** Simply type *"Looking for a data science internship in Germany"*.
-* **Cloud Inference via NVIDIA NIM:** Uses NVIDIA NIM as the unified LLM backend for all AI modules.
-* **Strict Structured Data:** Uses **Pydantic** to force LLMs to return reliable JSON, ensuring the matching engine never fails due to formatting issues.
-* **Automated Job CRM:** Automatically pushes matched jobs, scores, and feedback into a **Google Spreadsheet** for easy tracking.
-* **Sleek Frontend:** A responsive web interface built with HTML/CSS/JS for a seamless user experience.
-* **CareerLens Chatbot (Module 3):** A GenAI career guide that uses analytics context and can trigger live job+resume matching on demand.
-
----
-
-## 🧩 Module 3: CareerLens Chatbot
-
-New endpoint: `POST /career-chat`
-
-What it does:
-- Reads analytics context (trending jobs, top skills, locations) from PostgreSQL feature tables.
-- Answers strategy questions like "which skills should I upgrade next?".
-- Can trigger live job extraction + resume matching flow when requested.
-
-Form fields:
-- `question` (required): User question for career guidance.
-- `resume` (optional): PDF resume file; required if live matching is needed.
-- `live_job_query` (optional): Explicit query for live job scraping/matching.
-- `force_live_jobs` (optional, bool): Force live extraction + matching path.
+**Key Features:**
+- **Data-Driven Advice:** The bot can query the **Real-Time Analytics** module to answer questions about market trends (e.g., "What are the most demanded skills for a ML Engineer right now?").
+- **Live Workflow Integration:** It can seamlessly trigger the **Job Searching & Resume Matching** module. By analyzing live jobs against your resume during the chat, it computes real skill gaps.
+- **Transition Guidance:** Ask the bot how to transition from one role to another (e.g., "How do I switch from Data Analyst to Data Scientist?"), and it will formulate a concrete upskilling plan based on real market data.
+- **Actionable Next Steps:** Provides structured, concise, and motivating next steps for your career development.
 
 ---
 
-## 🧠 LLM Backend (NVIDIA NIM)
+## 🛠️ Technology Stack & Architecture Choices
 
-Module 1 and Module 3 now use NVIDIA NIM as the only supported LLM backend.
+Here is a breakdown of the technologies used in Career Lens and the rationale behind each choice:
 
-Configuration:
-```env
-LLM_PROVIDER=nvidia_nim
-NVIDIA_NIM_API_KEY=your_nim_api_key
-NVIDIA_NIM_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_NIM_MODEL=meta/llama-3.1-70b-instruct
-```
+- **FastAPI & Uvicorn**: 
+  - *Why*: FastAPI is extremely fast and natively supports asynchronous operations. Given that job matching and web scraping involve heavy network I/O, an async framework ensures the API remains highly responsive.
 
-Dependency note for NIM:
-```bash
-pip install langchain-openai
-```
+- **LangChain & LangGraph**:
+  - *Why*: The application requires complex, multi-step AI reasoning. LangGraph allows us to build stateful, multi-actor applications by orchestrating parallel AI tasks (like processing the resume and job postings concurrently). LangChain provides robust wrappers for LLM calls and prompt engineering.
 
----
+- **PostgreSQL & SQLModel**:
+  - *Why*: PostgreSQL is a powerful relational database needed for storing structured analytics data (like job features, top skills, and roles). SQLModel bridges Pydantic and SQLAlchemy, making it seamless to interact with the database using native Python types while ensuring data validation.
 
-## ⚙️ Tech Stack
+- **Celery & Redis**:
+  - *Why*: Long-running tasks, such as massive live job scrapes or prolonged analytics aggregations, shouldn't block the main API threads. Celery manages these asynchronous background queues efficiently, utilizing Redis as its robust message broker.
 
-| Category | Tools Used |
-| :--- | :--- |
-| **Language** | Python |
-| **AI Orchestration** | LangGraph / LangChain |
-| **LLMs** | NVIDIA NIM (OpenAI-compatible endpoint) |
-| **Scraping** | Apify (LinkedIn Actor) |
-| **Backend & DB** | FastAPI / SQLModel / SQLite |
-| **Frontend** | Vanilla HTML, CSS, & JavaScript |
+- **SlowAPI**:
+  - *Why*: To protect the system resources and prevent abuse. SlowAPI integrates smoothly with FastAPI to provide per-IP or user-based rate limiting on intensive endpoints like the live career chatbot.
+
+- **Google GenAI / LLM Endpoints**:
+  - *Why*: The backend relies on top-tier language models to generate accurate semantic similarities, parse chaotic job descriptions into structured JSON fields, and power the CareerLens conversational mentor.
+
+- **PyMuPDF & PyPDF2**:
+  - *Why*: Extracting clean, high-quality text from diverse user resumes is critical to the accuracy of the matching algorithm. These libraries provide reliable text extraction from PDF files.
+
+- **Apify Client**:
+  - *Why*: Building and maintaining custom scrapers for job sites can be fragile due to frequent DOM changes. Apify provides robust, managed scraper APIs, ensuring the live job search remains reliable over time.
 
 ---
 
-## 🧪 Example Use Case
+## 📋 Getting Started
 
-**Input:**
-* **Query:** *"Looking for a data science internship in Germany"*
-* **Resume:** Uploaded `my_resume.pdf`
-
-**Output:**
-* List of matching live internships in Germany.
-* Match score for each (e.g., 78%).
-* **AI Feedback:** *"Your resume matches the Python requirements but lacks 'Probability and Statistics'. Consider adding your university research project to highlight this."*
-
----
-
-## 🛠️ Setup Instructions
-
-### 1️⃣ Clone the Repository
-```bash
-git clone [https://github.com/jugal-lachhwani/job-ai-agent.git](https://github.com/jugal-lachhwani/job-ai-agent.git)
-cd job-ai-agent
-2️⃣ Create Virtual Environment
-Bash
-python -m venv venv
-source venv/bin/activate   # (Linux/Mac)
-venv\Scripts\activate      # (Windows)
-3️⃣ Install Dependencies
-Bash
-pip install -r requirements.txt
-4️⃣ Setup Environment Variables
-Create a .env file in the root directory:
-
-Code snippet
-APIFY_TOKEN=your_apify_token
-APIFY_ACTOR_NAME=valig/linkedin-jobs-scraper
-GEMINI_API_KEY=your_gemini_api_key
-5️⃣ Run the Application
-Start the FastAPI backend:
-
-Bash
-python -m src.api
-Access the UI by opening frontend/index.html in your browser.
-
-📌 Future Enhancements
-AI Cover Letter Generator: Drafts personalized letters based on match feedback.
-
-Skill Learning Roadmaps: Generates a custom path to bridge identified skill gaps.
-
-Real-Time Analytics: Dashboards for job market demand vs. candidate supply.
-
-📜 License
-MIT License
-
-👤 Author
-Jugal Lachhwani AI / Backend / Data-Driven Developer
-
-Focused on building impactful AI systems for career and education guidance.
-
-⭐ If you found this project useful, don’t forget to star the repository!
+*(Note: Provide instructions here for setting up the environment, installing dependencies via `requirements.txt`, setting up database credentials, and running the FastAPI server via Uvicorn or Docker.)*
